@@ -9,11 +9,13 @@
   :root {
     --bg: #ffffff; --fg: #1a1a1a; --muted: #6b6b6b; --line: #e2e2e2;
     --card: #f5f5f3; --accent: #185fa5; --accent-bg: #e6f1fb; --danger: #a32d2d; --danger-bg: #fcebeb;
+    --k-watch: #ef9f27; --k-good: #2e9e4f; --k-bad: #e24b4a; --k-ask: #378add;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #151515; --fg: #f1f1f1; --muted: #a0a0a0; --line: #333333;
       --card: #202020; --accent: #85b7eb; --accent-bg: #0c447c; --danger: #f09595; --danger-bg: #501313;
+      --k-watch: #ef9f27; --k-good: #3fb950; --k-bad: #f0605f; --k-ask: #5aa5ec;
     }
   }
   * { box-sizing: border-box; }
@@ -33,6 +35,13 @@
   .strip-time { font: 14px ui-monospace, Menlo, Consolas, monospace; color: var(--accent); flex: none; }
   .strip-text { overflow-wrap: anywhere; }
   .strip-idle { color: var(--muted); font-size: 16px; }
+  .strip-emoji { font-size: 1.5em; line-height: 1; flex: none; }
+  .strip-item.emoji-only .strip-emoji { font-size: 2.2em; }
+  .strip-item[data-k] { padding-left: 10px; border-left: 4px solid var(--line); }
+  .strip-item[data-k="watch"] { border-left-color: var(--k-watch); }
+  .strip-item[data-k="good"] { border-left-color: var(--k-good); }
+  .strip-item[data-k="bad"] { border-left-color: var(--k-bad); }
+  .strip-item[data-k="ask"] { border-left-color: var(--k-ask); }
 
   .controls { display: flex; gap: 8px; margin: 12px 0; }
   .controls button { flex: 1; min-height: 44px; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
@@ -44,6 +53,12 @@
   ol#list button:hover { background: var(--card); }
   ol#list button.on { background: var(--accent-bg); }
   .li-time { font: 14px ui-monospace, Menlo, Consolas, monospace; color: var(--accent); flex: none; min-width: 44px; }
+  .li-emoji { flex: none; font-size: 1.3em; line-height: 1.1; }
+  ol#list button { border-left: 4px solid transparent; }
+  ol#list button[data-k="watch"] { border-left-color: var(--k-watch); }
+  ol#list button[data-k="good"] { border-left-color: var(--k-good); }
+  ol#list button[data-k="bad"] { border-left-color: var(--k-bad); }
+  ol#list button[data-k="ask"] { border-left-color: var(--k-ask); }
   .li-text { overflow-wrap: anywhere; }
 
   .ext { margin: 16px 0 0; font-size: 14px; color: var(--muted); }
@@ -82,6 +97,14 @@
   var MAX_BYTES = 262144;
   var MAX_NOTES = 300;
   var MAX_TEXT = 300;
+  // The default emoji set (same as the extension) and the meaning colour for each
+  var EMOJI_KIND = {
+    '\u{1F440}': 'watch', '\u{1F3AF}': 'watch', '\u{1F4A1}': 'watch',
+    '\u2705': 'good', '\u2B50': 'good',
+    '\u274C': 'bad', '\u26A0\uFE0F': 'bad',
+    '\u{1F914}': 'ask'
+  };
+  function cleanEmoji(c) { return (typeof c === 'string' && Object.prototype.hasOwnProperty.call(EMOJI_KIND, c)) ? c : ''; }
 
   // ---------- share-link codec (kept identical to the extension's) ----------
   function fromB64Url(str) {
@@ -128,8 +151,10 @@
       if (!isFinite(s) || !isFinite(e) || typeof t !== 'string') return;
       if (s < 0 || s > 1000000 || e <= s || e - s > 3600) return;
       t = t.trim().slice(0, MAX_TEXT);
-      if (!t) return;
-      notes.push({ start: s, end: e, text: t });
+      var em = row.length > 3 ? cleanEmoji(row[3]) : '';
+      if (em && t === em) t = ''; // emoji-only note: the sender also puts the emoji in the text slot
+      if (!t && !em) return;
+      notes.push({ start: s, end: e, text: t, emoji: em });
     });
     if (!notes.length) return null;
     notes.sort(function (a, b) { return a.start - b.start; });
@@ -185,8 +210,10 @@
       var b = el('button');
       b.type = 'button';
       b.id = 'row' + i;
+      if (n.emoji) b.setAttribute('data-k', EMOJI_KIND[n.emoji]);
       b.appendChild(el('span', 'li-time', fmt(n.start)));
-      b.appendChild(el('span', 'li-text', n.text));
+      if (n.emoji) b.appendChild(el('span', 'li-emoji', n.emoji));
+      if (n.text) b.appendChild(el('span', 'li-text', n.text));
       b.addEventListener('click', function () { jumpTo(n.start); });
       li.appendChild(b);
       list.appendChild(li);
@@ -224,9 +251,12 @@
         strip.className = 'live';
         strip.id = 'strip';
         active.forEach(function (idx) {
-          var item = el('div', 'strip-item');
-          item.appendChild(el('span', 'strip-time', fmt(data.notes[idx].start)));
-          item.appendChild(el('span', 'strip-text', data.notes[idx].text));
+          var nn = data.notes[idx];
+          var item = el('div', 'strip-item' + (nn.emoji && !nn.text ? ' emoji-only' : ''));
+          if (nn.emoji) item.setAttribute('data-k', EMOJI_KIND[nn.emoji]);
+          item.appendChild(el('span', 'strip-time', fmt(nn.start)));
+          if (nn.emoji) item.appendChild(el('span', 'strip-emoji', nn.emoji));
+          if (nn.text) item.appendChild(el('span', 'strip-text', nn.text));
           strip.appendChild(item);
         });
       } else {
